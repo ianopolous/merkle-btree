@@ -32,4 +32,8 @@ public class MerkleBTree
         storage.put(root.hash(), root.serialize());
         return root;
     }
+
+    public void print(PrintStream w) throws IOException {
+        root.print(w, 0, storage);
+    }
 }

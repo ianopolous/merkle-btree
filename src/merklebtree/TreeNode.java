@@ -131,6 +131,18 @@ public class TreeNode implements Hashable {
         return this;
     }
 
+    public void print(PrintStream w, int depth, Map<ByteArrayWrapper, byte[]> storage) throws IOException {
+        int index = 0;
+        for (KeyElement e: keys) {
+            String tab = "";
+            for (int i=0; i < depth; i++)
+                tab += "   ";
+            w.print(String.format(tab+"[%d/%d] %s : %s\n", index++, keys.size(), e.key.toString(), new ByteArrayWrapper(e.valueHash).toString()));
+            if (e.targetHash.length > 0)
+                TreeNode.deserialize(storage.get(new ByteArrayWrapper(e.targetHash))).print(w, depth + 1, storage);
+        }
+    }
+
     public byte[] serialize() {
         try {
             ByteArrayOutputStream bout = new ByteArrayOutputStream();
