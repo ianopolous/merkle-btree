@@ -62,21 +62,26 @@ public class Tests {
     @Test
     public void random() throws IOException {
         MerkleBTree tree = new MerkleBTree();
-        Random r = new Random(1);
+        int keylen = 32;
+
         long t1 = System.currentTimeMillis();
-        for (int i=0; i < 1481; i++) {
-            byte[] key1 = new byte[32];
+        Random r = new Random(1);
+        int lim = 140000;
+        for (int i = 0; i < lim; i++) {
+            if (i % (lim/10) == 0)
+                System.out.println((10*i/lim)+"0 %");
+            byte[] key1 = new byte[keylen];
             r.nextBytes(key1);
-            byte[] data = new byte[32];
+            byte[] data = new byte[keylen];
             r.nextBytes(data);
             ByteArrayHashable value1 = new ByteArrayHashable(data);
             tree.storage.put(value1.hash(), value1.data);
             tree.put(key1, value1);
-//            ByteArrayWrapper res1 = tree.get(key1);
-//            if (!res1.equals(value1))
-//                throw new IllegalStateException("Results not equal");
+
+            ByteArrayWrapper res1 = tree.get(key1);
+            if (!res1.equals(value1))
+                throw new IllegalStateException("Results not equal");
         }
-        tree.print(System.out);
         long t2 = System.currentTimeMillis();
         System.out.printf("Put+get rate = %f /s\n", 1000000.0 / (t2 - t1) * 1000);
     }

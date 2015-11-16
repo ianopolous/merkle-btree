@@ -10,7 +10,9 @@ public class TreeNode implements Hashable {
     public TreeNode(byte[] leftChildHash, SortedSet<KeyElement> keys) {
         this.keys = new TreeSet<>();
         this.keys.addAll(keys);
-        this.keys.add(new KeyElement(new ByteArrayWrapper(new byte[0]), new byte[0], leftChildHash));
+        KeyElement zero = new KeyElement(new ByteArrayWrapper(new byte[0]), new byte[0], leftChildHash);
+        if (!keys.contains(zero))
+            this.keys.add(zero);
     }
 
     public TreeNode(SortedSet<KeyElement> keys) {
@@ -75,7 +77,7 @@ public class TreeNode implements Hashable {
             // commit right child
             SortedSet<KeyElement> right = keys.tailSet(median);
             right.remove(right.first());
-            TreeNode rightChild = new TreeNode(right);
+            TreeNode rightChild = new TreeNode(median.targetHash, right);
             storage.put(rightChild.hash(), rightChild.serialize());
 
             // now add median to parent
@@ -114,7 +116,7 @@ public class TreeNode implements Hashable {
             // commit right child
             SortedSet<KeyElement> right = keys.tailSet(median);
             right.remove(right.first());
-            TreeNode rightChild = new TreeNode(right);
+            TreeNode rightChild = new TreeNode(median.targetHash, right);
             storage.put(rightChild.hash(), rightChild.serialize());
 
             // now add median to parent
@@ -137,7 +139,7 @@ public class TreeNode implements Hashable {
             String tab = "";
             for (int i=0; i < depth; i++)
                 tab += "   ";
-            w.print(String.format(tab+"[%d/%d] %s : %s\n", index++, keys.size(), e.key.toString(), new ByteArrayWrapper(e.valueHash).toString()));
+            w.print(String.format(tab + "[%d/%d] %s : %s\n", index++, keys.size(), e.key.toString(), new ByteArrayWrapper(e.valueHash).toString()));
             if (e.targetHash.length > 0)
                 TreeNode.deserialize(storage.get(new ByteArrayWrapper(e.targetHash))).print(w, depth + 1, storage);
         }
@@ -199,6 +201,11 @@ public class TreeNode implements Hashable {
         @Override
         public int compareTo(KeyElement that) {
             return key.compareTo(that.key);
+        }
+
+        @Override
+        public String toString() {
+            return key.toString() + " -> " + new ByteArrayWrapper(valueHash) +" : "+new ByteArrayWrapper(targetHash);
         }
     }
 
