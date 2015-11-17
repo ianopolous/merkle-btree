@@ -4,7 +4,7 @@ import java.io.*;
 import java.security.*;
 import java.util.*;
 
-public class TreeNode implements Hashable {
+public class TreeNode {
     public final SortedSet<KeyElement> keys;
 
     public TreeNode(byte[] leftChildHash, SortedSet<KeyElement> keys) {
@@ -19,7 +19,7 @@ public class TreeNode implements Hashable {
         this(new byte[0], keys);
     }
 
-    public ByteArrayWrapper get(ByteArrayWrapper key, Map<ByteArrayWrapper, byte[]> storage) throws IOException {
+    public byte[] get(ByteArrayWrapper key, Map<ByteArrayWrapper, byte[]> storage) throws IOException {
         KeyElement dummy = new KeyElement(key, new byte[0], new byte[0]);
         SortedSet<KeyElement> tailSet = keys.tailSet(dummy);
         KeyElement nextSmallest;
@@ -31,13 +31,13 @@ public class TreeNode implements Hashable {
                 nextSmallest = keys.headSet(dummy).last();
         }
         if (nextSmallest.key.equals(key))
-            return new ByteArrayWrapper(storage.get(new ByteArrayWrapper(nextSmallest.valueHash)));
+            return nextSmallest.valueHash;
         if (nextSmallest.targetHash.length == 0)
             return null;
         return TreeNode.deserialize(storage.get(new ByteArrayWrapper(nextSmallest.targetHash))).get(key, storage);
     }
 
-    public TreeNode put(ByteArrayWrapper key, Hashable value, Map<ByteArrayWrapper, byte[]> storage) throws IOException {
+    public TreeNode put(ByteArrayWrapper key, byte[] value, Map<ByteArrayWrapper, byte[]> storage, int maxChildren) throws IOException {
         KeyElement dummy = new KeyElement(key, null, null);
         SortedSet<KeyElement> tailSet = keys.tailSet(dummy);
         KeyElement nextSmallest;
@@ -51,7 +51,7 @@ public class TreeNode implements Hashable {
             }
         }
         if (nextSmallest.key.equals(key)) {
-            KeyElement modified = new KeyElement(key, value.hash().data, nextSmallest.targetHash);
+            KeyElement modified = new KeyElement(key, value, nextSmallest.targetHash);
             keys.remove(nextSmallest);
             keys.add(modified);
             // commit this node to storage
@@ -59,14 +59,14 @@ public class TreeNode implements Hashable {
             return this;
         }
         if (nextSmallest.targetHash.length == 0) {
-            if (keys.size() < MerkleBTree.MAX_CHILDREN) {
-                keys.add(new KeyElement(key, value.hash().data, new byte[0]));
+            if (keys.size() < maxChildren) {
+                keys.add(new KeyElement(key, value, new byte[0]));
                 // commit this node to storage
                 storage.put(this.hash(), this.serialize());
                 return this;
             }
             // split into two and make new parent
-            keys.add(new KeyElement(key, value.hash().data, new byte[0]));
+            keys.add(new KeyElement(key, value, new byte[0]));
             KeyElement[] tmp = new KeyElement[keys.size()];
             KeyElement median = keys.toArray(tmp)[keys.size()/2];
             // commit left child
@@ -87,10 +87,10 @@ public class TreeNode implements Hashable {
             return new TreeNode(leftChild.hash().data, holder);
         }
 
-        TreeNode modifiedChild = TreeNode.deserialize(storage.get(new ByteArrayWrapper(nextSmallest.targetHash))).put(key, value, storage);
+        TreeNode modifiedChild = TreeNode.deserialize(storage.get(new ByteArrayWrapper(nextSmallest.targetHash))).put(key, value, storage, maxChildren);
         if (modifiedChild.keys.size() == 2) {
             // we split a child and need to add the median to our keys
-            if (keys.size() < MerkleBTree.MAX_CHILDREN) {
+            if (keys.size() < maxChildren) {
                 KeyElement replacementNextSmallest = new KeyElement(nextSmallest.key, nextSmallest.valueHash, modifiedChild.keys.first().targetHash);
                 keys.remove(nextSmallest);
                 keys.add(replacementNextSmallest);
@@ -152,7 +152,7 @@ public class TreeNode implements Hashable {
         return TreeNode.deserialize(storage.get(new ByteArrayWrapper(keys.first().targetHash))).smallestKey(storage);
     }
 
-    public TreeNode delete(ByteArrayWrapper key, Map<ByteArrayWrapper, byte[]> storage) throws IOException {
+    public TreeNode delete(ByteArrayWrapper key, Map<ByteArrayWrapper, byte[]> storage, int maxChildren) throws IOException {
         KeyElement dummy = new KeyElement(key, new byte[0], new byte[0]);
         SortedSet<KeyElement> tailSet = keys.tailSet(dummy);
         KeyElement nextSmallest;
@@ -167,7 +167,7 @@ public class TreeNode implements Hashable {
             if (nextSmallest.targetHash.length == 0) {
                 // we are a leaf
                 keys.remove(nextSmallest);
-                if (keys.size() >= MerkleBTree.MAX_CHILDREN/2)
+                if (keys.size() >= maxChildren/2)
                     storage.put(this.hash(), this.serialize());
                 return this;
             } else {
@@ -175,34 +175,34 @@ public class TreeNode implements Hashable {
                 TreeNode child = TreeNode.deserialize(storage.get(new ByteArrayWrapper(nextSmallest.targetHash)));
                 // take the subtree's smallest value (in a leaf) delete it and promote it to the separator here
                 ByteArrayWrapper smallestKey = child.smallestKey(storage);
-                ByteArrayWrapper value = child.get(smallestKey, storage);
-                TreeNode newChild = child.delete(smallestKey, storage);
-                KeyElement replacement = new KeyElement(smallestKey, hash(value.data), newChild.hash().data);
+                byte[] value = child.get(smallestKey, storage);
+                TreeNode newChild = child.delete(smallestKey, storage, maxChildren);
+                KeyElement replacement = new KeyElement(smallestKey, hash(value), newChild.hash().data);
                 keys.add(replacement);
-                if (newChild.keys.size() >= MerkleBTree.MAX_CHILDREN/2) {
+                if (newChild.keys.size() >= maxChildren/2) {
                     storage.put(this.hash(), this.serialize());
                     return this;
                 } else {
                     // re-balance
-                    return rebalance(this, newChild, storage);
+                    return rebalance(this, newChild, storage, maxChildren);
                 }
             }
         }
         if (nextSmallest.targetHash.length == 0)
             return this;
-        TreeNode child = TreeNode.deserialize(storage.get(new ByteArrayWrapper(nextSmallest.targetHash))).delete(key, storage);
+        TreeNode child = TreeNode.deserialize(storage.get(new ByteArrayWrapper(nextSmallest.targetHash))).delete(key, storage, maxChildren);
         // update pointer
         keys.remove(nextSmallest);
         keys.add(new KeyElement(nextSmallest.key, nextSmallest.valueHash, child.hash().data));
-        if (child.keys.size() < MerkleBTree.MAX_CHILDREN/2) {
+        if (child.keys.size() < maxChildren/2) {
             // re-balance
-            return rebalance(this, child, storage);
+            return rebalance(this, child, storage, maxChildren);
         }
         storage.put(this.hash(), this.serialize());
         return this;
     }
 
-    private static TreeNode rebalance(TreeNode parent, TreeNode child, Map<ByteArrayWrapper, byte[]> storage) throws IOException {
+    private static TreeNode rebalance(TreeNode parent, TreeNode child, Map<ByteArrayWrapper, byte[]> storage, int maxChildren) throws IOException {
         // child has too few children
         ByteArrayWrapper childHash = child.hash();
         KeyElement[] parentKeys = parent.keys.toArray(new KeyElement[parent.keys.size()]);
@@ -215,7 +215,7 @@ public class TreeNode implements Hashable {
         Optional<KeyElement> rightKey = i + 1 < parentKeys.length ? Optional.of(parentKeys[i+1]) : Optional.empty();
         Optional<TreeNode> leftSibling = leftKey.isPresent() ? Optional.of(TreeNode.deserialize(storage.get(new ByteArrayWrapper(leftKey.get().targetHash)))) : Optional.empty();
         Optional<TreeNode> rightSibling = rightKey.isPresent() ? Optional.of(TreeNode.deserialize(storage.get(new ByteArrayWrapper(rightKey.get().targetHash)))) : Optional.empty();
-        if (rightSibling.isPresent() && rightSibling.get().keys.size() > MerkleBTree.MAX_CHILDREN/2) {
+        if (rightSibling.isPresent() && rightSibling.get().keys.size() > maxChildren/2) {
             // rotate left
             TreeNode right = rightSibling.get();
             KeyElement newSeparator = right.smallestNonZeroKey();
@@ -234,7 +234,7 @@ public class TreeNode implements Hashable {
             parent.keys.add(new KeyElement(newSeparator.key, newSeparator.valueHash, right.hash().data));
             storage.put(parent.hash(), parent.serialize());
             return parent;
-        } else if (leftSibling.isPresent() && leftSibling.get().keys.size() > MerkleBTree.MAX_CHILDREN/2) {
+        } else if (leftSibling.isPresent() && leftSibling.get().keys.size() > maxChildren/2) {
             // rotate right
             TreeNode left = leftSibling.get();
             KeyElement newSeparator = left.keys.last();
@@ -266,7 +266,7 @@ public class TreeNode implements Hashable {
                 parent.keys.remove(rightKey.get());
                 parent.keys.remove(centerKey);
                 parent.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, combined.hash().data));
-                if (parent.keys.size() >= MerkleBTree.MAX_CHILDREN/2)
+                if (parent.keys.size() >= maxChildren/2)
                     storage.put(parent.hash(), parent.serialize());
                 return parent;
             } else {
@@ -281,7 +281,7 @@ public class TreeNode implements Hashable {
                 parent.keys.remove(leftKey.get());
                 parent.keys.remove(centerKey);
                 parent.keys.add(new KeyElement(leftKey.get().key, leftKey.get().valueHash, combined.hash().data));
-                if (parent.keys.size() >= MerkleBTree.MAX_CHILDREN/2)
+                if (parent.keys.size() >= maxChildren/2)
                     storage.put(parent.hash(), parent.serialize());
                 return parent;
             }
@@ -319,7 +319,6 @@ public class TreeNode implements Hashable {
         }
     }
 
-    @Override
     public ByteArrayWrapper hash() {
         return new ByteArrayWrapper(hash(serialize()));
     }
