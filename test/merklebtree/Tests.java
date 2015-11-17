@@ -83,7 +83,49 @@ public class Tests {
                 throw new IllegalStateException("Results not equal");
         }
         long t2 = System.currentTimeMillis();
-        System.out.printf("Put+get rate = %f /s\n", 1000000.0 / (t2 - t1) * 1000);
+        System.out.printf("Put+get rate = %f /s\n", (double)lim / (t2 - t1) * 1000);
+    }
+
+    @Test
+    public void delete() throws IOException {
+        MerkleBTree tree = new MerkleBTree();
+        int keylen = 32;
+
+        Random r = new Random(1);
+        SortedSet<ByteArrayWrapper> keys = new TreeSet<>();
+        int lim = 10000;
+        for (int i = 0; i < lim; i++) {
+            if (i % (lim/10) == 0)
+                System.out.println((10*i/lim)+"0 % of building");
+            byte[] key1 = new byte[keylen];
+            keys.add(new ByteArrayWrapper(key1));
+            r.nextBytes(key1);
+            byte[] data = new byte[keylen];
+            r.nextBytes(data);
+            ByteArrayHashable value1 = new ByteArrayHashable(data);
+            tree.storage.put(value1.hash(), value1.data);
+            tree.put(key1, value1);
+
+            ByteArrayWrapper res1 = tree.get(key1);
+            if (!res1.equals(value1))
+                throw new IllegalStateException("Results not equal");
+        }
+
+        ByteArrayWrapper[] keysArray = keys.toArray(new ByteArrayWrapper[keys.size()]);
+        long t1 = System.currentTimeMillis();
+        for (int i = 0; i < lim; i++) {
+            if (i % (lim / 10) == 0)
+                System.out.println((10 * i / lim) + "0 % of deleting");
+            ByteArrayWrapper key = keysArray[r.nextInt(keysArray.length)];
+            ByteArrayWrapper value = tree.get(key.data);
+            tree.delete(key.data);
+            if (tree.get(key.data) != null)
+                throw new IllegalStateException("Key still present!");
+            tree.put(key.data, new ByteArrayHashable(value.data));
+
+        }
+        long t2 = System.currentTimeMillis();
+        System.out.printf("delete+get+put rate = %f /s\n", (double)lim / (t2 - t1) * 1000);
     }
 
     public static class ByteArrayHashable extends ByteArrayWrapper implements Hashable {

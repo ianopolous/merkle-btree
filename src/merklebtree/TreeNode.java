@@ -133,6 +133,151 @@ public class TreeNode implements Hashable {
         return this;
     }
 
+    private KeyElement smallestNonZeroKey() {
+        return keys.tailSet(new KeyElement(new ByteArrayWrapper(new byte[]{0}), new byte[0], new byte[0])).first();
+    }
+
+    public ByteArrayWrapper smallestKey(Map<ByteArrayWrapper, byte[]> storage) throws IOException {
+        if (keys.first().targetHash.length == 0)
+            return keys.toArray(new KeyElement[keys.size()])[1].key;
+        return TreeNode.deserialize(storage.get(new ByteArrayWrapper(keys.first().targetHash))).smallestKey(storage);
+    }
+
+    public TreeNode delete(ByteArrayWrapper key, Map<ByteArrayWrapper, byte[]> storage) throws IOException {
+        KeyElement dummy = new KeyElement(key, new byte[0], new byte[0]);
+        SortedSet<KeyElement> tailSet = keys.tailSet(dummy);
+        KeyElement nextSmallest;
+        if (tailSet.size() == 0) {
+            nextSmallest = keys.last();
+        } else {
+            nextSmallest = tailSet.first();
+            if (!nextSmallest.key.equals(key))
+                nextSmallest = keys.headSet(dummy).last();
+        }
+        if (nextSmallest.key.equals(key)) {
+            if (nextSmallest.targetHash.length == 0) {
+                // we are a leaf
+                keys.remove(nextSmallest);
+                if (keys.size() >= MerkleBTree.MAX_CHILDREN/2)
+                    storage.put(this.hash(), this.serialize());
+                return this;
+            } else {
+                keys.remove(nextSmallest);
+                TreeNode child = TreeNode.deserialize(storage.get(new ByteArrayWrapper(nextSmallest.targetHash)));
+                // take the subtree's smallest value (in a leaf) delete it and promote it to the separator here
+                ByteArrayWrapper smallestKey = child.smallestKey(storage);
+                ByteArrayWrapper value = child.get(smallestKey, storage);
+                TreeNode newChild = child.delete(smallestKey, storage);
+                KeyElement replacement = new KeyElement(smallestKey, hash(value.data), newChild.hash().data);
+                keys.add(replacement);
+                if (newChild.keys.size() >= MerkleBTree.MAX_CHILDREN) {
+                    storage.put(this.hash(), this.serialize());
+                    return this;
+                } else {
+                    // re-balance
+                    return rebalance(this, newChild, storage);
+                }
+            }
+        }
+        if (nextSmallest.targetHash.length == 0)
+            return this;
+        TreeNode child = TreeNode.deserialize(storage.get(new ByteArrayWrapper(nextSmallest.targetHash))).delete(key, storage);
+        // update pointer
+        keys.remove(nextSmallest);
+        keys.add(new KeyElement(nextSmallest.key, nextSmallest.valueHash, child.hash().data));
+        if (child.keys.size() < MerkleBTree.MAX_CHILDREN) {
+            // re-balance
+            return rebalance(this, child, storage);
+        }
+        storage.put(this.hash(), this.serialize());
+        return this;
+    }
+
+    private static TreeNode rebalance(TreeNode parent, TreeNode child, Map<ByteArrayWrapper, byte[]> storage) throws IOException {
+        // child has too few children
+        ByteArrayWrapper childHash = child.hash();
+        KeyElement[] parentKeys = parent.keys.toArray(new KeyElement[parent.keys.size()]);
+        int i = 0;
+        while (i < parentKeys.length && !(new ByteArrayWrapper(parentKeys[i].targetHash)).equals(childHash))
+            i++;
+
+        KeyElement centerKey = parentKeys[i];
+        Optional<KeyElement> leftKey = i > 0 ? Optional.of(parentKeys[i-1]) : Optional.empty();
+        Optional<KeyElement> rightKey = i + 1 < parentKeys.length ? Optional.of(parentKeys[i+1]) : Optional.empty();
+        Optional<TreeNode> leftSibling = leftKey.isPresent() ? Optional.of(TreeNode.deserialize(storage.get(new ByteArrayWrapper(leftKey.get().targetHash)))) : Optional.empty();
+        Optional<TreeNode> rightSibling = rightKey.isPresent() ? Optional.of(TreeNode.deserialize(storage.get(new ByteArrayWrapper(rightKey.get().targetHash)))) : Optional.empty();
+        if (rightSibling.isPresent() && rightSibling.get().keys.size() > MerkleBTree.MAX_CHILDREN/2) {
+            // rotate left
+            TreeNode right = rightSibling.get();
+            KeyElement newSeparator = right.smallestNonZeroKey();
+            parent.keys.remove(centerKey);
+
+            child.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, right.keys.first().targetHash));
+            storage.put(child.hash(), child.serialize());
+
+            right.keys.remove(newSeparator);
+            right = new TreeNode(newSeparator.targetHash, right.keys);
+            storage.put(right.hash(), right.serialize());
+
+            parent.keys.remove(rightKey.get());
+            parent.keys.add(new KeyElement(rightKey.get().key, rightKey.get().valueHash, right.hash().data));
+            parent.keys.add(new KeyElement(newSeparator.key, newSeparator.valueHash, child.hash().data));
+            storage.put(parent.hash(), parent.serialize());
+            return parent;
+        } else if (leftSibling.isPresent() && leftSibling.get().keys.size() > MerkleBTree.MAX_CHILDREN/2) {
+            // rotate right
+            TreeNode left = leftSibling.get();
+            KeyElement newSeparator = left.keys.last();
+            parent.keys.remove(centerKey);
+
+            left.keys.remove(newSeparator);
+            storage.put(left.hash(), left.serialize());
+
+            child.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, child.keys.first().targetHash));
+            child.keys.remove(new KeyElement(new ByteArrayWrapper(new byte[0]), new byte[0], new byte[0]));
+            child.keys.add(new KeyElement(new ByteArrayWrapper(new byte[0]), new byte[0], newSeparator.targetHash));
+            storage.put(child.hash(), child.serialize());
+
+            parent.keys.remove(leftKey.get());
+            parent.keys.add(new KeyElement(leftKey.get().key, leftKey.get().valueHash, left.hash().data));
+            parent.keys.add(new KeyElement(newSeparator.key, newSeparator.valueHash, child.hash().data));
+            storage.put(parent.hash(), parent.serialize());
+            return parent;
+        } else {
+            if (rightSibling.isPresent()) {
+                // merge with right sibling and separator
+                SortedSet<KeyElement> combinedKeys = new TreeSet<>();
+                combinedKeys.addAll(child.keys);
+                combinedKeys.addAll(rightSibling.get().keys);
+                combinedKeys.add(new KeyElement(rightKey.get().key, rightKey.get().valueHash, rightSibling.get().keys.first().targetHash));
+                TreeNode combined = new TreeNode(combinedKeys);
+                storage.put(combined.hash(), combined.serialize());
+
+                parent.keys.remove(rightKey.get());
+                parent.keys.remove(centerKey);
+                parent.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, combined.hash().data));
+                if (parent.keys.size() >= MerkleBTree.MAX_CHILDREN/2)
+                    storage.put(parent.hash(), parent.serialize());
+                return parent;
+            } else {
+                // merge with left sibling and separator
+                SortedSet<KeyElement> combinedKeys = new TreeSet<>();
+                combinedKeys.addAll(child.keys);
+                combinedKeys.addAll(leftSibling.get().keys);
+                combinedKeys.add(new KeyElement(centerKey.key, centerKey.valueHash, child.keys.first().targetHash));
+                TreeNode combined = new TreeNode(combinedKeys);
+                storage.put(combined.hash(), combined.serialize());
+
+                parent.keys.remove(leftKey.get());
+                parent.keys.remove(centerKey);
+                parent.keys.add(new KeyElement(leftKey.get().key, leftKey.get().valueHash, combined.hash().data));
+                if (parent.keys.size() >= MerkleBTree.MAX_CHILDREN/2)
+                    storage.put(parent.hash(), parent.serialize());
+                return parent;
+            }
+        }
+    }
+
     public void print(PrintStream w, int depth, Map<ByteArrayWrapper, byte[]> storage) throws IOException {
         int index = 0;
         for (KeyElement e: keys) {

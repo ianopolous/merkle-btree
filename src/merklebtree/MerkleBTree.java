@@ -33,6 +33,12 @@ public class MerkleBTree
         return root;
     }
 
+    public TreeNode delete(byte[] rawKey) throws IOException {
+        root = root.delete(new ByteArrayWrapper(rawKey), storage);
+        storage.put(root.hash(), root.serialize());
+        return root;
+    }
+
     public void print(PrintStream w) throws IOException {
         root.print(w, 0, storage);
     }
