@@ -20,22 +20,46 @@ public class MerkleBTree
         this(new TreeNode(new TreeSet<>()), new HashMap<>(), 16);
     }
 
+    /**
+     *
+     * @param rawKey
+     * @return value stored under rawKey
+     * @throws IOException
+     */
     public byte[] get(byte[] rawKey) throws IOException {
         return root.get(new ByteArrayWrapper(rawKey), storage);
     }
 
-    public TreeNode put(byte[] rawKey, byte[] value) throws IOException {
+    /**
+     *
+     * @param rawKey
+     * @param value
+     * @return hash of new tree root
+     * @throws IOException
+     */
+    public byte[] put(byte[] rawKey, byte[] value) throws IOException {
         root = root.put(new ByteArrayWrapper(rawKey), value, storage, maxChildren);
         storage.put(root.hash(), root.serialize());
-        return root;
+        return root.hash().data;
     }
 
-    public TreeNode delete(byte[] rawKey) throws IOException {
+    /**
+     *
+     * @param rawKey
+     * @return hash of new tree root
+     * @throws IOException
+     */
+    public byte[] delete(byte[] rawKey) throws IOException {
         root = root.delete(new ByteArrayWrapper(rawKey), storage, maxChildren);
         storage.put(root.hash(), root.serialize());
-        return root;
+        return root.hash().data;
     }
 
+    /**
+     *
+     * @return number of keys stored in tree
+     * @throws IOException
+     */
     public int size() throws IOException {
         return root.size(storage);
     }
