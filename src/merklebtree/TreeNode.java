@@ -221,7 +221,7 @@ public class TreeNode implements Hashable {
             KeyElement newSeparator = right.smallestNonZeroKey();
             parent.keys.remove(centerKey);
 
-            child.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, right.keys.first().targetHash));
+            child.keys.add(new KeyElement(rightKey.get().key, rightKey.get().valueHash, right.keys.first().targetHash));
             storage.put(child.hash(), child.serialize());
 
             right.keys.remove(newSeparator);
