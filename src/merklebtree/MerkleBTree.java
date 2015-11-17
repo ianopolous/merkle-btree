@@ -39,6 +39,10 @@ public class MerkleBTree
         return root;
     }
 
+    public int size() throws IOException {
+        return root.size(storage);
+    }
+
     public void print(PrintStream w) throws IOException {
         root.print(w, 0, storage);
     }

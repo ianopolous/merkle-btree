@@ -133,6 +133,15 @@ public class TreeNode implements Hashable {
         return this;
     }
 
+    public int size(Map<ByteArrayWrapper, byte[]> storage) throws IOException {
+        int total = 0;
+        for (KeyElement e : keys)
+            if (e.targetHash.length > 0)
+                total += TreeNode.deserialize(storage.get(new ByteArrayWrapper(e.targetHash))).size(storage);
+        total += keys.size() - 1;
+        return total;
+    }
+
     private KeyElement smallestNonZeroKey() {
         return keys.tailSet(new KeyElement(new ByteArrayWrapper(new byte[]{0}), new byte[0], new byte[0])).first();
     }
@@ -170,7 +179,7 @@ public class TreeNode implements Hashable {
                 TreeNode newChild = child.delete(smallestKey, storage);
                 KeyElement replacement = new KeyElement(smallestKey, hash(value.data), newChild.hash().data);
                 keys.add(replacement);
-                if (newChild.keys.size() >= MerkleBTree.MAX_CHILDREN) {
+                if (newChild.keys.size() >= MerkleBTree.MAX_CHILDREN/2) {
                     storage.put(this.hash(), this.serialize());
                     return this;
                 } else {
@@ -185,7 +194,7 @@ public class TreeNode implements Hashable {
         // update pointer
         keys.remove(nextSmallest);
         keys.add(new KeyElement(nextSmallest.key, nextSmallest.valueHash, child.hash().data));
-        if (child.keys.size() < MerkleBTree.MAX_CHILDREN) {
+        if (child.keys.size() < MerkleBTree.MAX_CHILDREN/2) {
             // re-balance
             return rebalance(this, child, storage);
         }
@@ -216,12 +225,13 @@ public class TreeNode implements Hashable {
             storage.put(child.hash(), child.serialize());
 
             right.keys.remove(newSeparator);
+            right.keys.remove(new KeyElement(new ByteArrayWrapper(new byte[0]), new byte[0], new byte[0]));
             right = new TreeNode(newSeparator.targetHash, right.keys);
             storage.put(right.hash(), right.serialize());
 
             parent.keys.remove(rightKey.get());
-            parent.keys.add(new KeyElement(rightKey.get().key, rightKey.get().valueHash, right.hash().data));
-            parent.keys.add(new KeyElement(newSeparator.key, newSeparator.valueHash, child.hash().data));
+            parent.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, child.hash().data));
+            parent.keys.add(new KeyElement(newSeparator.key, newSeparator.valueHash, right.hash().data));
             storage.put(parent.hash(), parent.serialize());
             return parent;
         } else if (leftSibling.isPresent() && leftSibling.get().keys.size() > MerkleBTree.MAX_CHILDREN/2) {

@@ -93,7 +93,7 @@ public class Tests {
 
         Random r = new Random(1);
         SortedSet<ByteArrayWrapper> keys = new TreeSet<>();
-        int lim = 10000;
+        int lim = 100;
         for (int i = 0; i < lim; i++) {
             if (i % (lim/10) == 0)
                 System.out.println((10*i/lim)+"0 % of building");
@@ -116,13 +116,18 @@ public class Tests {
         for (int i = 0; i < lim; i++) {
             if (i % (lim / 10) == 0)
                 System.out.println((10 * i / lim) + "0 % of deleting");
+            tree.print(System.out);
+            if (tree.size() != lim)
+                throw new IllegalStateException("Missing keys from tree!");
             ByteArrayWrapper key = keysArray[r.nextInt(keysArray.length)];
+            System.out.println(key);
             ByteArrayWrapper value = tree.get(key.data);
+            if (value == null)
+                throw new IllegalStateException("Key not present!");
             tree.delete(key.data);
             if (tree.get(key.data) != null)
                 throw new IllegalStateException("Key still present!");
             tree.put(key.data, new ByteArrayHashable(value.data));
-
         }
         long t2 = System.currentTimeMillis();
         System.out.printf("delete+get+put rate = %f /s\n", (double)lim / (t2 - t1) * 1000);
