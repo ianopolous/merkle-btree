@@ -29,7 +29,7 @@ public class Tests {
             if (!Arrays.equals(res1, value1))
                 throw new IllegalStateException("Results not equal");
         }
-        if (tree.root.keys.size() != 2)
+        if (tree.root.node.keys.size() != 2)
             throw new IllegalStateException("New root should have two children!");
     }
 
@@ -54,6 +54,7 @@ public class Tests {
                 throw new IllegalStateException("Results not equal");
         }
         System.out.printf("Put+get rate = %f /s\n", 1000000.0 / (t2 - t1) * 1000);
+        ((RAMStorage)tree.storage).clear();
     }
 
     @Test
@@ -79,6 +80,7 @@ public class Tests {
         }
         long t2 = System.currentTimeMillis();
         System.out.printf("Put+get rate = %f /s\n", (double)lim / (t2 - t1) * 1000);
+        ((RAMStorage)tree.storage).clear();
     }
 
     @Test
@@ -122,5 +124,6 @@ public class Tests {
         }
         long t2 = System.currentTimeMillis();
         System.out.printf("size+get+delete+get+put rate = %f /s\n", (double)lim / (t2 - t1) * 1000);
+        ((RAMStorage)tree.storage).clear();
     }
 }
