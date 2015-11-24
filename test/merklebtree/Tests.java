@@ -29,7 +29,7 @@ public class Tests {
             if (!Arrays.equals(res1, value1))
                 throw new IllegalStateException("Results not equal");
         }
-        if (tree.root.node.keys.size() != 2)
+        if (tree.root.keys.size() != 2)
             throw new IllegalStateException("New root should have two children!");
     }
 
@@ -125,5 +125,56 @@ public class Tests {
         long t2 = System.currentTimeMillis();
         System.out.printf("size+get+delete+get+put rate = %f /s\n", (double)lim / (t2 - t1) * 1000);
         ((RAMStorage)tree.storage).clear();
+    }
+
+    @Test
+    public void storageSize() throws IOException {
+        MerkleBTree tree = new MerkleBTree();
+        int keylen = 32;
+
+        Random r = new Random(1);
+        SortedSet<ByteArrayWrapper> keys = new TreeSet<>();
+        // make a 3 node tree
+        int lim = 22;
+        for (int i = 0; i < lim; i++) {
+            if (i % (lim/10) == 0)
+                System.out.println((10*i/lim)+"0 % of building");
+            byte[] key1 = toLittleEndian(i);
+            keys.add(new ByteArrayWrapper(key1));
+            byte[] value1 = new byte[keylen];
+            r.nextBytes(value1);
+            tree.put(key1, value1);
+
+            byte[] res1 = tree.get(key1);
+            if (!Arrays.equals(res1, value1))
+                throw new IllegalStateException("Results not equal");
+        }
+
+        int size = ((RAMStorage)tree.storage).size();
+        if (size != 3)
+            throw new IllegalStateException("Storage size != 3");
+
+        long t1 = System.currentTimeMillis();
+        for (int i = 16; i < 22; i++) {
+            byte[] key = toLittleEndian(i);
+            byte[] value = tree.get(key);
+            if (value == null)
+                throw new IllegalStateException("Key not present!");
+            tree.delete(key);
+            if (tree.get(key) != null)
+                throw new IllegalStateException("Key still present!");
+            if (size != 3)
+                throw new IllegalStateException("Storage size != 3");
+        }
+        long t2 = System.currentTimeMillis();
+        System.out.printf("size+get+delete+get+put rate = %f /s\n", (double)lim / (t2 - t1) * 1000);
+        ((RAMStorage)tree.storage).clear();
+    }
+
+    private static byte[] toLittleEndian(int x) {
+        byte[] res = new byte[4];
+        for (int i=0; i < 4; i++)
+            res[i] = (byte) (x >> 8*i);
+        return res;
     }
 }

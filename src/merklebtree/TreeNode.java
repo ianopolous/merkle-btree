@@ -5,18 +5,36 @@ import java.security.*;
 import java.util.*;
 
 public class TreeNode {
+    public final Optional<byte[]> hash;
     public final SortedSet<KeyElement> keys;
 
-    public TreeNode(byte[] leftChildHash, SortedSet<KeyElement> keys) {
+    public TreeNode(byte[] leftChildHash, SortedSet<KeyElement> keys, Optional<byte[]> ourHash) {
         this.keys = new TreeSet<>();
         this.keys.addAll(keys);
         KeyElement zero = new KeyElement(new ByteArrayWrapper(new byte[0]), new byte[0], leftChildHash);
         if (!keys.contains(zero))
             this.keys.add(zero);
+        this.hash = ourHash;
+    }
+
+    public TreeNode(byte[] leftChildHash, SortedSet<KeyElement> keys) {
+        this(leftChildHash, keys, Optional.empty());
     }
 
     public TreeNode(SortedSet<KeyElement> keys) {
-        this(new byte[0], keys);
+        this(new byte[0], keys, Optional.empty());
+    }
+
+    public TreeNode(SortedSet<KeyElement> keys, byte[] ourHash) {
+        this(new byte[0], keys, Optional.of(ourHash));
+    }
+
+    public TreeNode(TreeNode node, byte[] hash) {
+        this(new byte[0], node.keys, Optional.of(hash));
+    }
+
+    private TreeNode withHash(byte[] hash) {
+        return new TreeNode(keys, hash);
     }
 
     public byte[] get(ByteArrayWrapper key, ContentAddressedStorage storage) throws IOException {
@@ -37,7 +55,7 @@ public class TreeNode {
         return TreeNode.deserialize(storage.get(nextSmallest.targetHash)).get(key, storage);
     }
 
-    public TreeNodeAndHash put(ByteArrayWrapper key, byte[] value, ContentAddressedStorage storage, int maxChildren) throws IOException {
+    public TreeNode put(ByteArrayWrapper key, byte[] value, ContentAddressedStorage storage, int maxChildren) throws IOException {
         KeyElement dummy = new KeyElement(key, null, null);
         SortedSet<KeyElement> tailSet = keys.tailSet(dummy);
         KeyElement nextSmallest;
@@ -56,14 +74,17 @@ public class TreeNode {
             keys.add(modified);
             // commit this node to storage
             byte[] hash = storage.put(this.serialize());
-            return new TreeNodeAndHash(this, hash);
+            storage.remove(this.hash.get());
+            return new TreeNode(this.keys, hash);
         }
         if (nextSmallest.targetHash.length == 0) {
             if (keys.size() < maxChildren) {
                 keys.add(new KeyElement(key, value, new byte[0]));
                 // commit this node to storage
                 byte[] hash = storage.put(this.serialize());
-                return new TreeNodeAndHash(this, hash);
+                if (this.hash.isPresent())
+                    storage.remove(this.hash.get());
+                return new TreeNode(this.keys, hash);
             }
             // split into two and make new parent
             keys.add(new KeyElement(key, value, new byte[0]));
@@ -84,12 +105,14 @@ public class TreeNode {
             TreeSet holder = new TreeSet<>();
             KeyElement newParent = new KeyElement(median.key, median.valueHash, rightChildHash);
             holder.add(newParent);
-            return new TreeNodeAndHash(new TreeNode(leftChildHash, holder));
+            storage.remove(this.hash.get());
+            return new TreeNode(leftChildHash, holder);
         }
 
-        TreeNodeAndHash modifiedChildAndHash = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).put(key, value, storage, maxChildren);
-        TreeNode modifiedChild = modifiedChildAndHash.node;
-        if (!modifiedChildAndHash.hash.isPresent()) {
+        TreeNode modifiedChild = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).put(key, value, storage, maxChildren);
+        if (!modifiedChild.hash.isPresent() || !Arrays.equals(modifiedChild.hash.get(), nextSmallest.targetHash))
+            storage.remove(nextSmallest.targetHash);
+        if (!modifiedChild.hash.isPresent()) {
             // we split a child and need to add the median to our keys
             if (keys.size() < maxChildren) {
                 KeyElement replacementNextSmallest = new KeyElement(nextSmallest.key, nextSmallest.valueHash, modifiedChild.keys.first().targetHash);
@@ -97,7 +120,8 @@ public class TreeNode {
                 keys.add(replacementNextSmallest);
                 keys.add(modifiedChild.keys.last());
                 byte[] hash = storage.put(this.serialize());
-                return new TreeNodeAndHash(this, hash);
+                storage.remove(this.hash.get());
+                return new TreeNode(this.keys, hash);
             }
             // we need to split as well, merge in new key and two pointers first
             KeyElement nonZero = modifiedChild.keys.last();
@@ -124,14 +148,16 @@ public class TreeNode {
             TreeSet holder = new TreeSet<>();
             KeyElement newParent = new KeyElement(median.key, median.valueHash, rightChildHash);
             holder.add(newParent);
-            return new TreeNodeAndHash(new TreeNode(leftChildHash, holder));
+            storage.remove(this.hash.get());
+            return new TreeNode(leftChildHash, holder);
         }
         // update pointer to child (child element wasn't split)
-        KeyElement updated = new KeyElement(nextSmallest.key, nextSmallest.valueHash, modifiedChildAndHash.hash.get());
+        KeyElement updated = new KeyElement(nextSmallest.key, nextSmallest.valueHash, modifiedChild.hash.get());
         keys.remove(nextSmallest);
         keys.add(updated);
         byte[] hash = storage.put(this.serialize());
-        return new TreeNodeAndHash(this, hash);
+        storage.remove(this.hash.get());
+        return new TreeNode(this, hash);
     }
 
     public int size(ContentAddressedStorage storage) throws IOException {
@@ -153,7 +179,7 @@ public class TreeNode {
         return TreeNode.deserialize(storage.get(keys.first().targetHash)).smallestKey(storage);
     }
 
-    public TreeNodeAndHash delete(ByteArrayWrapper key, ContentAddressedStorage storage, int maxChildren) throws IOException {
+    public TreeNode delete(ByteArrayWrapper key, ContentAddressedStorage storage, int maxChildren) throws IOException {
         KeyElement dummy = new KeyElement(key, new byte[0], new byte[0]);
         SortedSet<KeyElement> tailSet = keys.tailSet(dummy);
         KeyElement nextSmallest;
@@ -168,48 +194,54 @@ public class TreeNode {
             if (nextSmallest.targetHash.length == 0) {
                 // we are a leaf
                 keys.remove(nextSmallest);
+                storage.remove(this.hash.get());
                 if (keys.size() >= maxChildren/2) {
                     byte[] hash = storage.put(this.serialize());
-                    return new TreeNodeAndHash(this, hash);
+                    return new TreeNode(this.keys, hash);
                 }
-                return new TreeNodeAndHash(this);
+                return new TreeNode(this.keys);
             } else {
-                TreeNode child = TreeNode.deserialize(storage.get(nextSmallest.targetHash));
+                TreeNode child = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).withHash(nextSmallest.targetHash);
                 // take the subtree's smallest value (in a leaf) delete it and promote it to the separator here
                 ByteArrayWrapper smallestKey = child.smallestKey(storage);
                 byte[] value = child.get(smallestKey, storage);
-                TreeNodeAndHash newChildAndHash = child.delete(smallestKey, storage, maxChildren);
+                TreeNode newChild = child.delete(smallestKey, storage, maxChildren);
 
-                byte[] childHash = storage.put(newChildAndHash.node.serialize());
+                byte[] childHash = storage.put(newChild.serialize());
                 keys.remove(nextSmallest);
+                storage.remove(nextSmallest.targetHash);
                 KeyElement replacement = new KeyElement(smallestKey, value, childHash);
                 keys.add(replacement);
-                if (newChildAndHash.node.keys.size() >= maxChildren/2) {
+                storage.remove(this.hash.get());
+                if (newChild.keys.size() >= maxChildren/2) {
                     byte[] hash = storage.put(this.serialize());
-                    return new TreeNodeAndHash(this, hash);
+                    return new TreeNode(this, hash);
                 } else {
                     // re-balance
-                    return rebalance(this, newChildAndHash.node, childHash, storage, maxChildren);
+                    return rebalance(this, newChild, childHash, storage, maxChildren);
                 }
             }
         }
         if (nextSmallest.targetHash.length == 0)
-            return new TreeNodeAndHash(this);
-        TreeNodeAndHash childAndHash = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).delete(key, storage, maxChildren);
+            return new TreeNode(this.keys);
+        TreeNode child = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).withHash(nextSmallest.targetHash).delete(key, storage, maxChildren);
+        if (!child.hash.isPresent() || !Arrays.equals(child.hash.get(), nextSmallest.targetHash))
+            storage.remove(nextSmallest.targetHash);
         // update pointer
-        if (childAndHash.hash.isPresent()) {
+        if (child.hash.isPresent()) {
             keys.remove(nextSmallest);
-            keys.add(new KeyElement(nextSmallest.key, nextSmallest.valueHash, childAndHash.hash.get()));
+            keys.add(new KeyElement(nextSmallest.key, nextSmallest.valueHash, child.hash.get()));
         }
-        if (childAndHash.node.keys.size() < maxChildren / 2) {
+        if (child.keys.size() < maxChildren / 2) {
             // re-balance
-            return rebalance(this, childAndHash.node, nextSmallest.targetHash, storage, maxChildren);
+            return rebalance(this, child, nextSmallest.targetHash, storage, maxChildren);
         }
         byte[] hash = storage.put(this.serialize());
-        return new TreeNodeAndHash(this, hash);
+        storage.remove(this.hash.get());
+        return new TreeNode(this, hash);
     }
 
-    private static TreeNodeAndHash rebalance(TreeNode parent, TreeNode child, byte[] originalChildHash, ContentAddressedStorage storage, int maxChildren) throws IOException {
+    private static TreeNode rebalance(TreeNode parent, TreeNode child, byte[] originalChildHash, ContentAddressedStorage storage, int maxChildren) throws IOException {
         // child has too few children
         ByteArrayWrapper childHash = new ByteArrayWrapper(originalChildHash);
         KeyElement[] parentKeys = parent.keys.toArray(new KeyElement[parent.keys.size()]);
@@ -240,7 +272,9 @@ public class TreeNode {
             parent.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, newChildHash));
             parent.keys.add(new KeyElement(newSeparator.key, newSeparator.valueHash, newRightHash));
             byte[] hash = storage.put(parent.serialize());
-            return new TreeNodeAndHash(parent, hash);
+            storage.remove(child.hash.get());
+            storage.remove(parent.hash.get());
+            return new TreeNode(parent, hash);
         } else if (leftSibling.isPresent() && leftSibling.get().keys.size() > maxChildren/2) {
             // rotate right
             TreeNode left = leftSibling.get();
@@ -259,7 +293,9 @@ public class TreeNode {
             parent.keys.add(new KeyElement(leftKey.get().key, leftKey.get().valueHash, newLeftHash));
             parent.keys.add(new KeyElement(newSeparator.key, newSeparator.valueHash, newChildHash));
             byte[] hash = storage.put(parent.serialize());
-            return new TreeNodeAndHash(parent, hash);
+            storage.remove(child.hash.get());
+            storage.remove(parent.hash.get());
+            return new TreeNode(parent, hash);
         } else {
             if (rightSibling.isPresent()) {
                 // merge with right sibling and separator
@@ -273,11 +309,13 @@ public class TreeNode {
                 parent.keys.remove(rightKey.get());
                 parent.keys.remove(centerKey);
                 parent.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, combinedHash));
+                storage.remove(child.hash.get());
+                storage.remove(parent.hash.get());
                 if (parent.keys.size() >= maxChildren/2) {
                     byte[] hash = storage.put(parent.serialize());
-                    return new TreeNodeAndHash(parent, hash);
+                    return new TreeNode(parent, hash);
                 }
-                return new TreeNodeAndHash(parent);
+                return new TreeNode(parent.keys);
             } else {
                 // merge with left sibling and separator
                 SortedSet<KeyElement> combinedKeys = new TreeSet<>();
@@ -290,11 +328,13 @@ public class TreeNode {
                 parent.keys.remove(leftKey.get());
                 parent.keys.remove(centerKey);
                 parent.keys.add(new KeyElement(leftKey.get().key, leftKey.get().valueHash, combinedHash));
+                storage.remove(child.hash.get());
+                storage.remove(parent.hash.get());
                 if (parent.keys.size() >= maxChildren/2) {
                     byte[] hash = storage.put(parent.serialize());
-                    return new TreeNodeAndHash(parent, hash);
+                    return new TreeNode(parent, hash);
                 }
-                return new TreeNodeAndHash(parent);
+                return new TreeNode(parent.keys);
             }
         }
     }
@@ -367,24 +407,6 @@ public class TreeNode {
         @Override
         public String toString() {
             return key.toString() + " -> " + new ByteArrayWrapper(valueHash) +" : "+new ByteArrayWrapper(targetHash);
-        }
-    }
-
-    public static class TreeNodeAndHash {
-        public final TreeNode node;
-        public final Optional<byte[]> hash; // hash is present if the node is already in the storage
-
-        public TreeNodeAndHash(TreeNode node, Optional<byte[]> hash) {
-            this.node = node;
-            this.hash = hash;
-        }
-
-        public TreeNodeAndHash(TreeNode node) {
-            this(node, Optional.empty());
-        }
-
-        public TreeNodeAndHash(TreeNode node, byte[] hash) {
-            this(node, Optional.of(hash));
         }
     }
 }

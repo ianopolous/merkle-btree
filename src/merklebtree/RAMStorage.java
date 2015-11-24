@@ -27,6 +27,10 @@ public class RAMStorage implements ContentAddressedStorage {
         storage.clear();
     }
 
+    public int size() {
+        return storage.size();
+    }
+
     public static byte[] hash(byte[] input)
     {
         try {

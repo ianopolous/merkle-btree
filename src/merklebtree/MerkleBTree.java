@@ -7,13 +7,13 @@ public class MerkleBTree
 {
     public final ContentAddressedStorage storage;
     public final int maxChildren;
-    public TreeNode.TreeNodeAndHash root;
+    public TreeNode root;
 
     public MerkleBTree(TreeNode root, ContentAddressedStorage storage, int maxChildren) {
-        this.root = new TreeNode.TreeNodeAndHash(root);
         this.storage = storage;
+        byte[] hash = this.storage.put(root.serialize());
+        this.root = new TreeNode(root.keys, hash);
         this.maxChildren = maxChildren;
-        this.storage.put(root.serialize());
     }
 
     public MerkleBTree() {
@@ -27,7 +27,7 @@ public class MerkleBTree
      * @throws IOException
      */
     public byte[] get(byte[] rawKey) throws IOException {
-        return root.node.get(new ByteArrayWrapper(rawKey), storage);
+        return root.get(new ByteArrayWrapper(rawKey), storage);
     }
 
     /**
@@ -38,10 +38,13 @@ public class MerkleBTree
      * @throws IOException
      */
     public byte[] put(byte[] rawKey, byte[] value) throws IOException {
-        root = root.node.put(new ByteArrayWrapper(rawKey), value, storage, maxChildren);
-        if (!root.hash.isPresent()) {
-            root = new TreeNode.TreeNodeAndHash(root.node, storage.put(root.node.serialize()));
-        }
+        TreeNode newRoot = root.put(new ByteArrayWrapper(rawKey), value, storage, maxChildren);
+        if (root.hash.isPresent())
+            storage.remove(root.hash.get());
+        if (!newRoot.hash.isPresent()) {
+            root = new TreeNode(newRoot.keys, storage.put(root.serialize()));
+        } else
+            root = newRoot;
         return root.hash.get();
     }
 
@@ -52,10 +55,13 @@ public class MerkleBTree
      * @throws IOException
      */
     public byte[] delete(byte[] rawKey) throws IOException {
-        root = root.node.delete(new ByteArrayWrapper(rawKey), storage, maxChildren);
-        if (!root.hash.isPresent()) {
-            root = new TreeNode.TreeNodeAndHash(root.node, storage.put(root.node.serialize()));
-        }
+        TreeNode newRoot = root.delete(new ByteArrayWrapper(rawKey), storage, maxChildren);
+        if (root.hash.isPresent())
+            storage.remove(root.hash.get());
+        if (!newRoot.hash.isPresent()) {
+            root = new TreeNode(newRoot.keys, storage.put(root.serialize()));
+        } else
+            root = newRoot;
         return root.hash.get();
     }
 
@@ -65,10 +71,10 @@ public class MerkleBTree
      * @throws IOException
      */
     public int size() throws IOException {
-        return root.node.size(storage);
+        return root.size(storage);
     }
 
     public void print(PrintStream w) throws IOException {
-        root.node.print(w, 0, storage);
+        root.print(w, 0, storage);
     }
 }
