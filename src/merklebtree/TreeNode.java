@@ -74,7 +74,8 @@ public class TreeNode {
             keys.add(modified);
             // commit this node to storage
             byte[] hash = storage.put(this.serialize());
-            storage.remove(this.hash.get());
+            if (!Arrays.equals(hash, this.hash.get()))
+                storage.remove(this.hash.get());
             return new TreeNode(this.keys, hash);
         }
         if (nextSmallest.targetHash.length == 0) {
@@ -109,7 +110,7 @@ public class TreeNode {
             return new TreeNode(leftChildHash, holder);
         }
 
-        TreeNode modifiedChild = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).put(key, value, storage, maxChildren);
+        TreeNode modifiedChild = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).withHash(nextSmallest.targetHash).put(key, value, storage, maxChildren);
         if (!modifiedChild.hash.isPresent() || !Arrays.equals(modifiedChild.hash.get(), nextSmallest.targetHash))
             storage.remove(nextSmallest.targetHash);
         if (!modifiedChild.hash.isPresent()) {
@@ -156,7 +157,8 @@ public class TreeNode {
         keys.remove(nextSmallest);
         keys.add(updated);
         byte[] hash = storage.put(this.serialize());
-        storage.remove(this.hash.get());
+        if (!Arrays.equals(hash, this.hash.get()))
+            storage.remove(this.hash.get());
         return new TreeNode(this, hash);
     }
 
@@ -272,7 +274,8 @@ public class TreeNode {
             parent.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, newChildHash));
             parent.keys.add(new KeyElement(newSeparator.key, newSeparator.valueHash, newRightHash));
             byte[] hash = storage.put(parent.serialize());
-            storage.remove(child.hash.get());
+            if (child.hash.isPresent())
+                storage.remove(child.hash.get());
             storage.remove(parent.hash.get());
             return new TreeNode(parent, hash);
         } else if (leftSibling.isPresent() && leftSibling.get().keys.size() > maxChildren/2) {
@@ -293,7 +296,8 @@ public class TreeNode {
             parent.keys.add(new KeyElement(leftKey.get().key, leftKey.get().valueHash, newLeftHash));
             parent.keys.add(new KeyElement(newSeparator.key, newSeparator.valueHash, newChildHash));
             byte[] hash = storage.put(parent.serialize());
-            storage.remove(child.hash.get());
+            if (child.hash.isPresent())
+                storage.remove(child.hash.get());
             storage.remove(parent.hash.get());
             return new TreeNode(parent, hash);
         } else {
@@ -309,7 +313,8 @@ public class TreeNode {
                 parent.keys.remove(rightKey.get());
                 parent.keys.remove(centerKey);
                 parent.keys.add(new KeyElement(centerKey.key, centerKey.valueHash, combinedHash));
-                storage.remove(child.hash.get());
+                if (child.hash.isPresent())
+                    storage.remove(child.hash.get());
                 storage.remove(parent.hash.get());
                 if (parent.keys.size() >= maxChildren/2) {
                     byte[] hash = storage.put(parent.serialize());
@@ -328,7 +333,8 @@ public class TreeNode {
                 parent.keys.remove(leftKey.get());
                 parent.keys.remove(centerKey);
                 parent.keys.add(new KeyElement(leftKey.get().key, leftKey.get().valueHash, combinedHash));
-                storage.remove(child.hash.get());
+                if (child.hash.isPresent())
+                    storage.remove(child.hash.get());
                 storage.remove(parent.hash.get());
                 if (parent.keys.size() >= maxChildren/2) {
                     byte[] hash = storage.put(parent.serialize());
