@@ -34,6 +34,22 @@ public class Tests {
     }
 
     @Test
+    public void overwriteValue() throws IOException {
+        MerkleBTree tree = new MerkleBTree();
+        byte[] key1 = new byte[]{0, 1, 2, 3};
+        byte[] value1 = new byte[]{1, 1, 1, 1};
+        tree.put(key1, value1);
+        byte[] res1 = tree.get(key1);
+        if (!Arrays.equals(res1, value1))
+            throw new IllegalStateException("Results not equal");
+        byte[] value2 = new byte[]{2, 2, 2, 2};
+        tree.put(key1, value2);
+        byte[] res2 = tree.get(key1);
+        if (!Arrays.equals(res2, value2))
+            throw new IllegalStateException("Results not equal");
+    }
+
+    @Test
     public void huge() throws IOException {
         MerkleBTree tree = new MerkleBTree();
         long t1 = System.currentTimeMillis();
