@@ -10,18 +10,11 @@
     <packaging>jar</packaging>
 
     <name>Merkle B-Tree</name>
-    <!-- FIXME change it to the project's website -->
     <url>https://github.com/ianopolous/merkle-btree</url>
 
     <properties>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <java.version>1.8</java.version>
-        <os-maven-plugin.version>1.6.1</os-maven-plugin.version>
-        <protobuf-maven-plugin.version>0.6.1</protobuf-maven-plugin.version>
     </properties>
 
     <dependencies>
@@ -32,19 +25,13 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
+            <!-- https://mvnrepository.com/artifact/org.hamcrest/hamcrest-core -->
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>1.7.25</version>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest-core</artifactId>
+            <version>1.3</version>
+            <scope>test</scope>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/org.hamcrest/hamcrest-core -->
-<dependency>
-    <groupId>org.hamcrest</groupId>
-    <artifactId>hamcrest-core</artifactId>
-    <version>1.3</version>
-    <scope>test</scope>
-</dependency>
 
     </dependencies>
 
