@@ -30,6 +30,11 @@ public class MerkleBTree
         return root.get(new ByteArrayWrapper(rawKey), storage);
     }
 
+    public byte[] get(byte[] rawKey, TreeNode.Nodes nodes) throws IOException {
+        nodes.root = root.hash.get();
+        return root.getWithNodeHistory(new ByteArrayWrapper(rawKey), storage, nodes);
+    }
+
     /**
      *
      * @param rawKey

@@ -1,7 +1,6 @@
 package merklebtree;
 
 import java.io.*;
-import java.security.*;
 import java.util.*;
 
 public class TreeNode {
@@ -41,6 +40,16 @@ public class TreeNode {
         KeyElement dummy = new KeyElement(key, new byte[0], new byte[0]);
         SortedSet<KeyElement> tailSet = keys.tailSet(dummy);
         KeyElement nextSmallest;
+        nextSmallest = getNextSmallest(key, dummy, (SortedSet<KeyElement>) tailSet);
+        if (nextSmallest.key.equals(key))
+            return nextSmallest.valueHash;
+        if (nextSmallest.targetHash.length == 0)
+            return null;
+        return TreeNode.deserialize(storage.get(nextSmallest.targetHash)).get(key, storage);
+    }
+
+    private KeyElement getNextSmallest(ByteArrayWrapper key, KeyElement dummy, SortedSet<KeyElement> tailSet) {
+        KeyElement nextSmallest;
         if (tailSet.size() == 0) {
             nextSmallest = keys.last();
         } else {
@@ -48,11 +57,26 @@ public class TreeNode {
             if (!nextSmallest.key.equals(key))
                 nextSmallest = keys.headSet(dummy).last();
         }
-        if (nextSmallest.key.equals(key))
+        return nextSmallest;
+    }
+
+    public byte[] getWithNodeHistory(ByteArrayWrapper key, ContentAddressedStorage storage, Nodes node) throws IOException {
+        KeyElement dummy = new KeyElement(key, new byte[0], new byte[0]);
+        SortedSet<KeyElement> tailSet = keys.tailSet(dummy);
+        KeyElement nextSmallest = getNextSmallest(key, dummy, tailSet);
+        if (this.hash.isPresent())
+            node.nodeHash.add(this.hash.get());
+        if (nextSmallest.key.equals(key)) {
             return nextSmallest.valueHash;
-        if (nextSmallest.targetHash.length == 0)
+        }
+        if (nextSmallest.targetHash.length == 0) {
             return null;
-        return TreeNode.deserialize(storage.get(nextSmallest.targetHash)).get(key, storage);
+        } else {
+            node.nodeHash.add(nextSmallest.targetHash);
+        }
+        byte[] nodeHash = storage.get(nextSmallest.targetHash);
+        TreeNode deserializedNode = TreeNode.deserialize(nodeHash);
+        return deserializedNode.getWithNodeHistory(key, storage, node);
     }
 
     public TreeNode put(ByteArrayWrapper key, byte[] value, ContentAddressedStorage storage, int maxChildren) throws IOException {
@@ -90,7 +114,7 @@ public class TreeNode {
             // split into two and make new parent
             keys.add(new KeyElement(key, value, new byte[0]));
             KeyElement[] tmp = new KeyElement[keys.size()];
-            KeyElement median = keys.toArray(tmp)[keys.size()/2];
+            KeyElement median = keys.toArray(tmp)[keys.size() / 2];
             // commit left child
             SortedSet<KeyElement> left = keys.headSet(median);
             TreeNode leftChild = new TreeNode(left);
@@ -110,13 +134,16 @@ public class TreeNode {
             return new TreeNode(leftChildHash, holder);
         }
 
-        TreeNode modifiedChild = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).withHash(nextSmallest.targetHash).put(key, value, storage, maxChildren);
+        TreeNode modifiedChild =
+                TreeNode.deserialize(storage.get(nextSmallest.targetHash)).withHash(nextSmallest.targetHash).put(key,
+                        value, storage, maxChildren);
         if (!modifiedChild.hash.isPresent() || !Arrays.equals(modifiedChild.hash.get(), nextSmallest.targetHash))
             storage.remove(nextSmallest.targetHash);
         if (!modifiedChild.hash.isPresent()) {
             // we split a child and need to add the median to our keys
             if (keys.size() < maxChildren) {
-                KeyElement replacementNextSmallest = new KeyElement(nextSmallest.key, nextSmallest.valueHash, modifiedChild.keys.first().targetHash);
+                KeyElement replacementNextSmallest = new KeyElement(nextSmallest.key, nextSmallest.valueHash,
+                        modifiedChild.keys.first().targetHash);
                 keys.remove(nextSmallest);
                 keys.add(replacementNextSmallest);
                 keys.add(modifiedChild.keys.last());
@@ -127,13 +154,14 @@ public class TreeNode {
             // we need to split as well, merge in new key and two pointers first
             KeyElement nonZero = modifiedChild.keys.last();
             keys.add(nonZero);
-            KeyElement updated = new KeyElement(nextSmallest.key, nextSmallest.valueHash, modifiedChild.keys.first().targetHash);
+            KeyElement updated = new KeyElement(nextSmallest.key, nextSmallest.valueHash,
+                    modifiedChild.keys.first().targetHash);
             keys.remove(nextSmallest);
             keys.add(updated);
 
             // now split
             KeyElement[] tmp = new KeyElement[keys.size()];
-            KeyElement median = keys.toArray(tmp)[keys.size()/2];
+            KeyElement median = keys.toArray(tmp)[keys.size() / 2];
             // commit left child
             SortedSet<KeyElement> left = keys.headSet(median);
             TreeNode leftChild = new TreeNode(left);
@@ -184,26 +212,20 @@ public class TreeNode {
     public TreeNode delete(ByteArrayWrapper key, ContentAddressedStorage storage, int maxChildren) throws IOException {
         KeyElement dummy = new KeyElement(key, new byte[0], new byte[0]);
         SortedSet<KeyElement> tailSet = keys.tailSet(dummy);
-        KeyElement nextSmallest;
-        if (tailSet.size() == 0) {
-            nextSmallest = keys.last();
-        } else {
-            nextSmallest = tailSet.first();
-            if (!nextSmallest.key.equals(key))
-                nextSmallest = keys.headSet(dummy).last();
-        }
+        KeyElement nextSmallest = getNextSmallest(key, dummy, tailSet);
         if (nextSmallest.key.equals(key)) {
             if (nextSmallest.targetHash.length == 0) {
                 // we are a leaf
                 keys.remove(nextSmallest);
                 storage.remove(this.hash.get());
-                if (keys.size() >= maxChildren/2) {
+                if (keys.size() >= maxChildren / 2) {
                     byte[] hash = storage.put(this.serialize());
                     return new TreeNode(this.keys, hash);
                 }
                 return new TreeNode(this.keys);
             } else {
-                TreeNode child = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).withHash(nextSmallest.targetHash);
+                TreeNode child =
+                        TreeNode.deserialize(storage.get(nextSmallest.targetHash)).withHash(nextSmallest.targetHash);
                 // take the subtree's smallest value (in a leaf) delete it and promote it to the separator here
                 ByteArrayWrapper smallestKey = child.smallestKey(storage);
                 byte[] value = child.get(smallestKey, storage);
@@ -215,7 +237,7 @@ public class TreeNode {
                 KeyElement replacement = new KeyElement(smallestKey, value, childHash);
                 keys.add(replacement);
                 storage.remove(this.hash.get());
-                if (newChild.keys.size() >= maxChildren/2) {
+                if (newChild.keys.size() >= maxChildren / 2) {
                     byte[] hash = storage.put(this.serialize());
                     return new TreeNode(this, hash);
                 } else {
@@ -226,7 +248,8 @@ public class TreeNode {
         }
         if (nextSmallest.targetHash.length == 0)
             return new TreeNode(this.keys);
-        TreeNode child = TreeNode.deserialize(storage.get(nextSmallest.targetHash)).withHash(nextSmallest.targetHash).delete(key, storage, maxChildren);
+        TreeNode child =
+                TreeNode.deserialize(storage.get(nextSmallest.targetHash)).withHash(nextSmallest.targetHash).delete(key, storage, maxChildren);
         if (!child.hash.isPresent() || !Arrays.equals(child.hash.get(), nextSmallest.targetHash))
             storage.remove(nextSmallest.targetHash);
         // update pointer
@@ -243,7 +266,8 @@ public class TreeNode {
         return new TreeNode(this, hash);
     }
 
-    private static TreeNode rebalance(TreeNode parent, TreeNode child, byte[] originalChildHash, ContentAddressedStorage storage, int maxChildren) throws IOException {
+    private static TreeNode rebalance(TreeNode parent, TreeNode child, byte[] originalChildHash,
+                                      ContentAddressedStorage storage, int maxChildren) throws IOException {
         // child has too few children
         ByteArrayWrapper childHash = new ByteArrayWrapper(originalChildHash);
         KeyElement[] parentKeys = parent.keys.toArray(new KeyElement[parent.keys.size()]);
@@ -252,11 +276,13 @@ public class TreeNode {
             i++;
 
         KeyElement centerKey = parentKeys[i];
-        Optional<KeyElement> leftKey = i > 0 ? Optional.of(parentKeys[i-1]) : Optional.empty();
-        Optional<KeyElement> rightKey = i + 1 < parentKeys.length ? Optional.of(parentKeys[i+1]) : Optional.empty();
-        Optional<TreeNode> leftSibling = leftKey.isPresent() ? Optional.of(TreeNode.deserialize(storage.get(leftKey.get().targetHash))) : Optional.empty();
-        Optional<TreeNode> rightSibling = rightKey.isPresent() ? Optional.of(TreeNode.deserialize(storage.get(rightKey.get().targetHash))) : Optional.empty();
-        if (rightSibling.isPresent() && rightSibling.get().keys.size() > maxChildren/2) {
+        Optional<KeyElement> leftKey = i > 0 ? Optional.of(parentKeys[i - 1]) : Optional.empty();
+        Optional<KeyElement> rightKey = i + 1 < parentKeys.length ? Optional.of(parentKeys[i + 1]) : Optional.empty();
+        Optional<TreeNode> leftSibling = leftKey.isPresent() ?
+                Optional.of(TreeNode.deserialize(storage.get(leftKey.get().targetHash))) : Optional.empty();
+        Optional<TreeNode> rightSibling = rightKey.isPresent() ?
+                Optional.of(TreeNode.deserialize(storage.get(rightKey.get().targetHash))) : Optional.empty();
+        if (rightSibling.isPresent() && rightSibling.get().keys.size() > maxChildren / 2) {
             // rotate left
             TreeNode right = rightSibling.get();
             KeyElement newSeparator = right.smallestNonZeroKey();
@@ -278,7 +304,7 @@ public class TreeNode {
                 storage.remove(child.hash.get());
             storage.remove(parent.hash.get());
             return new TreeNode(parent, hash);
-        } else if (leftSibling.isPresent() && leftSibling.get().keys.size() > maxChildren/2) {
+        } else if (leftSibling.isPresent() && leftSibling.get().keys.size() > maxChildren / 2) {
             // rotate right
             TreeNode left = leftSibling.get();
             KeyElement newSeparator = left.keys.last();
@@ -306,7 +332,8 @@ public class TreeNode {
                 SortedSet<KeyElement> combinedKeys = new TreeSet<>();
                 combinedKeys.addAll(child.keys);
                 combinedKeys.addAll(rightSibling.get().keys);
-                combinedKeys.add(new KeyElement(rightKey.get().key, rightKey.get().valueHash, rightSibling.get().keys.first().targetHash));
+                combinedKeys.add(new KeyElement(rightKey.get().key, rightKey.get().valueHash,
+                        rightSibling.get().keys.first().targetHash));
                 TreeNode combined = new TreeNode(combinedKeys);
                 byte[] combinedHash = storage.put(combined.serialize());
 
@@ -316,7 +343,7 @@ public class TreeNode {
                 if (child.hash.isPresent())
                     storage.remove(child.hash.get());
                 storage.remove(parent.hash.get());
-                if (parent.keys.size() >= maxChildren/2) {
+                if (parent.keys.size() >= maxChildren / 2) {
                     byte[] hash = storage.put(parent.serialize());
                     return new TreeNode(parent, hash);
                 }
@@ -336,7 +363,7 @@ public class TreeNode {
                 if (child.hash.isPresent())
                     storage.remove(child.hash.get());
                 storage.remove(parent.hash.get());
-                if (parent.keys.size() >= maxChildren/2) {
+                if (parent.keys.size() >= maxChildren / 2) {
                     byte[] hash = storage.put(parent.serialize());
                     return new TreeNode(parent, hash);
                 }
@@ -347,11 +374,12 @@ public class TreeNode {
 
     public void print(PrintStream w, int depth, ContentAddressedStorage storage) throws IOException {
         int index = 0;
-        for (KeyElement e: keys) {
+        for (KeyElement e : keys) {
             String tab = "";
-            for (int i=0; i < depth; i++)
+            for (int i = 0; i < depth; i++)
                 tab += "   ";
-            w.print(String.format(tab + "[%d/%d] %s : %s\n", index++, keys.size(), e.key.toString(), new ByteArrayWrapper(e.valueHash).toString()));
+            w.print(String.format(tab + "[%d/%d] %s : %s\n", index++, keys.size(), e.key.toString(),
+                    new ByteArrayWrapper(e.valueHash).toString()));
             if (e.targetHash.length > 0)
                 TreeNode.deserialize(storage.get(e.targetHash)).print(w, depth + 1, storage);
         }
@@ -382,7 +410,7 @@ public class TreeNode {
         DataInputStream din = new DataInputStream(new ByteArrayInputStream(raw));
         int n = din.readInt();
         SortedSet<KeyElement> keys = new TreeSet<>();
-        for (int i=0; i < n; i++) {
+        for (int i = 0; i < n; i++) {
             byte[] key = new byte[din.readInt()];
             din.readFully(key);
             byte[] valueHash = new byte[din.readInt()];
@@ -412,7 +440,12 @@ public class TreeNode {
 
         @Override
         public String toString() {
-            return key.toString() + " -> " + new ByteArrayWrapper(valueHash) +" : "+new ByteArrayWrapper(targetHash);
+            return key.toString() + " -> " + new ByteArrayWrapper(valueHash) + " : " + new ByteArrayWrapper(targetHash);
         }
+    }
+
+    public static class Nodes {
+        public byte[] root;
+        public LinkedList<byte[]> nodeHash = new LinkedList<>();
     }
 }
